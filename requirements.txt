@@ -8,3 +8,5 @@ chromadb
 python-dotenv
 tiktoken
 pypdf
+fastapi
+uvicorn
