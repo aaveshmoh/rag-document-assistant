@@ -16,11 +16,11 @@
 
 ## Project Overview
 
-This is a **Retrieval-Augmented Generation (RAG)** system designed to answer questions about banking policies, loans, and financial products using a local LLM (via Ollama) and vector embeddings.
+This is a **Retrieval-Augmented Generation (RAG)** system designed to answer questions about banking policies, loans, and financial products using an LLM (Groq) and vector embeddings (OpenAI or a configured embedder).
 
 ### Key Features:
 
-- ✅ Local LLM processing (no cloud API calls)
+- ✅ LLM processing via Groq
 - ✅ Vector-based semantic search using FAISS
 - ✅ Document chunking with overlap for better context
 - ✅ FastAPI REST endpoints for easy integration
@@ -31,9 +31,9 @@ This is a **Retrieval-Augmented Generation (RAG)** system designed to answer que
 
 - **LangChain**: LLM orchestration framework
 - **FAISS**: Vector similarity search
-- **Ollama**: Local LLM inference engine
+- **Groq**: LLM provider (configured via `GROQ_API_KEY`)
 - **FastAPI**: REST API framework
-- **LangChain-Ollama**: Integration layer
+- **LangChain-Groq**: Integration layer
 
 ---
 
@@ -44,7 +44,7 @@ This is a **Retrieval-Augmented Generation (RAG)** system designed to answer que
 ```
 User Question
     ↓
-[Vector Embedding] (Ollama: nomic-embed-text)
+[Vector Embedding] (OpenAI embeddings by default)
     ↓
 [FAISS Vector Store]
     ↓
@@ -52,7 +52,7 @@ User Question
     ↓
 [Format Context with Sources]
     ↓
-[LLM with Prompt Template] (Ollama: gemma:2b)
+[LLM with Prompt Template] (Groq)
     ↓
 [Parse & Return Answer + Sources]
 ```
@@ -65,13 +65,13 @@ User Question
 
 2. **Embedding Layer** (`App.py`)
    - Loads documents and splits into chunks (1000 chars, 200 char overlap)
-   - Creates vector embeddings using nomic-embed-text model
+   - Creates vector embeddings using configured embedder (OpenAI embeddings by default)
    - Stores embeddings in FAISS index (persisted on disk)
 
 3. **LLM Layer** (`App.py`)
-   - Ollama running locally on port 11434
-   - Model: gemma:2b (2B parameter model)
-   - Temperature: 0.7 (for balanced creativity)
+   - Groq LLM via `langchain_groq`
+   - Model: `llama-3.1-8b-instant` (configurable)
+   - Temperature: 0.1 (recommended for deterministic answers)
 
 4. **API Layer** (`api.py`)
    - FastAPI server on port 8000
@@ -92,49 +92,31 @@ User Question
 ### Required Software:
 
 - Python 3.8+
-- Ollama (from https://ollama.ai/)
 - pip (Python package manager)
+- Groq access (set `GROQ_API_KEY`)
 
-### Ollama Models Required:
+### External Keys / Models
 
-- `nomic-embed-text` (for embeddings, ~274MB)
-- `gemma:2b` (for LLM responses, ~1.6GB)
+- `GROQ_API_KEY` - required for Groq LLM access
+- `OPENAI_API_KEY` (optional) - required if using OpenAI for embeddings
 
 ---
 
 ## Installation Steps
 
-### Step 1: Install Ollama
+### Step 1: Configure LLM and Embedder Access
 
-1. Download from https://ollama.ai/
-2. Install and launch Ollama
-3. Verify it's running: Open terminal and run:
-   ```powershell
-   curl http://localhost:11434/api/tags
-   ```
-   You should get a JSON response if Ollama is running.
+This project uses Groq for LLM inference and local Sentence-Transformers for embeddings by default. Before starting the app, create a `.env` with the following values:
 
-### Step 2: Pull Required Models
+```env
+# Required for LLM
+GROQ_API_KEY=your_api_key_here
 
-In your terminal/PowerShell:
-
-```powershell
-# Pull embedding model
-ollama pull nomic-embed-text
-
-# Pull LLM model
-ollama pull gemma:2b
+# Optional - change local embedder model
+# HF_EMBED_MODEL=all-MiniLM-L6-v2
 ```
 
-This may take 5-10 minutes depending on your internet speed.
-
-### Step 3: Verify Models
-
-```powershell
-ollama list
-```
-
-You should see both `nomic-embed-text` and `gemma:2b` in the list.
+If you plan to use another embedder, set `OPENAI_EMBED_MODEL` or adjust `App.py` accordingly.
 
 ### Step 4: Clone/Setup Project
 
@@ -166,15 +148,16 @@ pip install -r requirements.txt
 **Dependencies Explained:**
 
 - `langchain`: Core RAG framework
-- `langchain-ollama`: Ollama integration
+- `langchain_groq`: Groq integration for LLM
 - `langchain-community`: Community vectorstores
 - `langchain-text-splitters`: Text chunking utilities
 - `faiss-cpu`: Vector similarity search
+- `sentence-transformers`: Local embedding models (default)
 - `python-dotenv`: Environment variable management
 - `fastapi`: Web framework
 - `uvicorn`: ASGI server
 - `chromadb`: Alternative vector store (included)
-- `tiktoken`: Token counting for OpenAI models
+- `tiktoken`: Token counting for some models
 - `pypdf`: PDF document loading
 
 ### Step 7: Verify Installation
@@ -189,16 +172,14 @@ python -c "import langchain; import faiss; import fastapi; print('All imports su
 
 ### Step 1: Create `.env` File
 
-Create a file named `.env` in the project root directory:
+Create a file named `.env` in the project root directory and set keys for Groq and optionally OpenAI:
 
 ```
-# Ollama Configuration
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_EMBED_MODEL=nomic-embed-text
-OLLAMA_CHAT_MODEL=gemma:2b
+# Groq LLM access
+GROQ_API_KEY=your_api_key_here
 
-# Model Parameters
-OLLAMA_TEMPERATURE=0.7
+# Optional - change the local embedder model
+# HF_EMBED_MODEL=all-MiniLM-L6-v2
 
 # Optional: API Configuration
 API_HOST=0.0.0.0
@@ -207,12 +188,10 @@ API_PORT=8000
 
 ### Step 2: Understand Configuration Options
 
-| Variable             | Default                | Description                       |
-| -------------------- | ---------------------- | --------------------------------- |
-| `OLLAMA_BASE_URL`    | http://localhost:11434 | Ollama server URL                 |
-| `OLLAMA_EMBED_MODEL` | nomic-embed-text       | Embedding model name              |
-| `OLLAMA_CHAT_MODEL`  | gemma:2b               | Chat/LLM model name               |
-| `OLLAMA_TEMPERATURE` | 0.7                    | LLM response randomness (0.0-1.0) |
+| Variable         | Default          | Description                            |
+| ---------------- | ---------------- | -------------------------------------- |
+| `GROQ_API_KEY`   | (none)           | Groq API key for LLM access            |
+| `HF_EMBED_MODEL` | all-MiniLM-L6-v2 | Local Sentence-Transformers model name |
 
 **Temperature Explanation:**
 

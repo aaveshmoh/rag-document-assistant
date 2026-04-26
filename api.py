@@ -52,25 +52,22 @@ app = FastAPI(
 def health():
     """Health check endpoint."""
     import os
+    # Simple health check: verify GROQ API key presence and RAG system state
+    groq_key = os.getenv("GROQ_API_KEY")
     try:
-        import requests
-        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        requests.get(f"{ollama_url}/api/tags", timeout=2)
-        return {
-            "status": "ok",
-            "message": "Document RAG QA API is running.",
-            "ollama": "connected",
-            "rag_system": "initialized" if rag_system.is_initialized else "not_initialized"
-        }
-    except Exception as e:
-        logger.warning("Ollama not accessible: %s", str(e))
-        return {
-            "status": "ok",
-            "message": "Document RAG QA API is running.",
-            "ollama": "disconnected",
-            "rag_system": "initialized" if rag_system.is_initialized else "not_initialized",
-            "warning": f"Ollama not accessible at {os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')}"
-        }
+        import sentence_transformers as _st  # type: ignore
+        local_embed = True
+    except Exception:
+        local_embed = False
+
+    status = {
+        "status": "ok",
+        "message": "Document RAG QA API is running.",
+        "groq": "configured" if groq_key else "missing",
+        "local_embeddings": "available" if local_embed else "missing",
+        "rag_system": "initialized" if rag_system.is_initialized else "not_initialized",
+    }
+    return status
 
 @app.get("/status", response_model=InitializationStatus, tags=["Status"])
 def system_status():

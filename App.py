@@ -10,7 +10,115 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
-from langchain_ollama import OllamaEmbeddings, ChatOllama
+from typing import Iterable
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception:
+    SentenceTransformer = None
+import json
+import requests
+from requests import RequestException
+
+
+class LocalEmbeddings:
+    """Minimal embeddings wrapper using Sentence-Transformers.
+
+    Provides `embed_documents` and `embed_query` methods compatible with
+    LangChain's embeddings interface used by FAISS.from_documents.
+    """
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self._backend = None
+        self._model_name = model_name
+        if SentenceTransformer is not None:
+            # Prefer local sentence-transformers
+            self._backend = "local"
+            self.model = SentenceTransformer(model_name)
+        else:
+            # Attempt to fall back to OpenAI embeddings if available
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if openai_key:
+                try:
+                    from langchain_openai import OpenAIEmbeddings
+
+                    self._backend = "openai"
+                    # Use a reasonable default if model_name looks like an HF model
+                    openai_model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+                    self.openai = OpenAIEmbeddings(model=openai_model)
+                except Exception:
+                    raise ImportError(
+                        "OpenAI embeddings requested via OPENAI_API_KEY but `langchain-openai` is not installed."
+                    )
+            else:
+                raise ImportError(
+                    "sentence-transformers is required for LocalEmbeddings — install it with `pip install sentence-transformers` "
+                    "or set OPENAI_API_KEY and install `langchain-openai` to use OpenAI embeddings as a fallback."
+                )
+
+    def embed_documents(self, texts: Iterable[str]) -> list:
+        if self._backend == "local":
+            arr = self.model.encode(list(texts), convert_to_numpy=True)
+            return [list(map(float, v)) for v in arr]
+        else:
+            return self.openai.embed_documents(list(texts))
+
+    def embed_query(self, text: str) -> list:
+        if self._backend == "local":
+            v = self.model.encode([text], convert_to_numpy=True)[0]
+            return list(map(float, v))
+        else:
+            return self.openai.embed_query(text)
+
+    # Make the object callable so LangChain/FAISS can call it directly
+    def __call__(self, text: str) -> list:
+        return self.embed_query(text)
+
+
+class GroqEmbeddings:
+    """Embeddings via Groq HTTP API.
+
+    Expects environment variable `GROQ_API_KEY` to be set. The default
+    endpoint is https://api.groq.ai/v1/embeddings but can be overridden by
+    `GROQ_API_URL`.
+    """
+
+    def __init__(self, model: str = "embed-1"):
+        self.api_key = os.getenv("GROQ_API_KEY")
+        if not self.api_key:
+            raise ValueError("GROQ_API_KEY is required for GroqEmbeddings")
+        self.model = model
+        self.url = os.getenv("GROQ_API_URL", "https://api.groq.ai/v1/embeddings")
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _post(self, payload: dict) -> dict:
+        try:
+            resp = requests.post(self.url, headers=self.headers, data=json.dumps(payload), timeout=15)
+            resp.raise_for_status()
+            return resp.json()
+        except RequestException as e:
+            raise ConnectionError(f"Groq embeddings request failed: {e}")
+
+    def embed_documents(self, texts: Iterable[str]) -> list:
+        payload = {"model": self.model, "input": list(texts)}
+        data = self._post(payload)
+        # Expecting response like: {"data": [{"embedding": [...]}, ...]}
+        items = data.get("data") or []
+        return [item.get("embedding") for item in items]
+
+    def embed_query(self, text: str) -> list:
+        payload = {"model": self.model, "input": [text]}
+        data = self._post(payload)
+        items = data.get("data") or []
+        if not items:
+            return []
+        return items[0].get("embedding")
+
+    # Callable interface for LangChain compatibility
+    def __call__(self, text: str) -> list:
+        return self.embed_query(text)
 from langchain_groq import ChatGroq
 from langchain_community.document_loaders import PyPDFLoader
 
@@ -126,9 +234,26 @@ class RAGSystem:
             
             # Step 3: Initialize Embeddings
             logger.info("\nSTEP 3: Initializing embeddings model...")
-            embed_model = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-            logger.info(f"   Using embedding model: {embed_model}")
-            self.embeddings = OllamaEmbeddings(model=embed_model)
+            # Choose embedding backend: prefer Groq if requested, else local, else OpenAI fallback
+            use_groq = os.getenv("USE_GROQ_EMBED", "").lower() in ("1", "true", "yes")
+            groq_model = os.getenv("GROQ_EMBED_MODEL")
+            hf_model = os.getenv("HF_EMBED_MODEL", "all-MiniLM-L6-v2")
+
+            if use_groq or (groq_model and os.getenv("GROQ_API_KEY")):
+                groq_model = groq_model or os.getenv("GROQ_EMBED_MODEL", "embed-1")
+                logger.info(f"   Using Groq embeddings model: {groq_model}")
+                try:
+                    self.embeddings = GroqEmbeddings(model=groq_model)
+                except Exception as e:
+                    logger.error("Failed to initialize Groq embeddings: %s", str(e))
+                    raise
+            else:
+                logger.info(f"   Using embedding model: {hf_model} (sentence-transformers)")
+                try:
+                    self.embeddings = LocalEmbeddings(model_name=hf_model)
+                except Exception as e:
+                    logger.error("Failed to initialize local embeddings: %s", str(e))
+                    raise
             logger.info("✓ Embeddings model initialized")
             
             # Step 4: Load or Create Vector Store
@@ -143,7 +268,39 @@ class RAGSystem:
                     self.embeddings,
                     allow_dangerous_deserialization=True
                 )
-                logger.info(f"✓ Loaded existing vector store")
+                # Verify embedding dimension matches FAISS index dimension
+                try:
+                    index_obj = getattr(self.vectorstore, "index", None)
+                    if index_obj is None:
+                        index_obj = getattr(self.vectorstore, "_faiss_index", None)
+                    index_dim = getattr(index_obj, "d", None)
+                except Exception:
+                    index_dim = None
+
+                try:
+                    sample_emb = self.embeddings.embed_query("test")
+                    emb_dim = len(sample_emb) if sample_emb else None
+                except Exception:
+                    emb_dim = None
+
+                if index_dim and emb_dim and index_dim != emb_dim:
+                    logger.warning(
+                        "Detected FAISS index dimension (%s) != embedding dim (%s). Rebuilding index...",
+                        index_dim,
+                        emb_dim,
+                    )
+                    # remove stale index and rebuild
+                    import shutil
+
+                    try:
+                        shutil.rmtree(str(BASE_DIR / "faiss_index"))
+                        logger.info("Removed stale faiss_index directory")
+                    except Exception as e:
+                        logger.error("Failed to remove faiss_index: %s", str(e))
+                    # create new index below (fall through to else branch)
+                    self.vectorstore = None
+                else:
+                    logger.info(f"✓ Loaded existing vector store")
             else:
                 logger.info("   No existing index found")
                 logger.info("   Creating new FAISS index from documents...")

@@ -1,6 +1,6 @@
 langchain
-langchain-ollama
-langchain-openai
+sentence-transformers
+requests
 langchain_groq
 langchain-community
 langchain-text-splitters

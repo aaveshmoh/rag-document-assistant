@@ -35,7 +35,7 @@ The application has been refactored to use a structured initialization pattern t
     │                  │                  │
     ▼                  ▼                  ▼
  Documents        Embeddings          LLM
- (PDF only)      (Ollama)           (Groq)
+ (PDF only)      (Local embeddings)           (Groq)
     │                  │                  │
     ▼                  ▼                  ▼
  Load PDFs      Create FAISS       Chat Groq
@@ -67,8 +67,8 @@ The application follows an 8-step initialization process:
 
 ### Step 3: Initialize Embeddings Model
 
-- Uses Ollama embeddings by default
-- Model: `nomic-embed-text` (configurable)
+- Uses local Sentence-Transformers embeddings by default (configurable)
+- Model: `all-MiniLM-L6-v2` (configurable via `HF_EMBED_MODEL`)
 - Converts text to dense vector representations
 
 ### Step 4: Set Up Vector Store (FAISS)
@@ -207,13 +207,14 @@ data.json
 
 ### 1. GET `/` - Health Check
 
-Returns API and Ollama connectivity status.
+Returns API and model connectivity/configuration status.
 
 ```json
 {
   "status": "ok",
   "message": "Document RAG QA API is running.",
-  "ollama": "connected",
+  "groq": "configured",
+  "local_embeddings": "available",
   "rag_system": "initialized"
 }
 ```
@@ -266,13 +267,14 @@ GROQ_API_KEY=your_api_key_here
 # Optional - Document Loading
 PDF_FILE_PATH=./documents/your_document.pdf
 
-# Optional - Embeddings Configuration
-OLLAMA_EMBED_MODEL=nomic-embed-text
-OLLAMA_BASE_URL=http://localhost:11434
+# Optional - Embeddings Configuration (local)
+HF_EMBED_MODEL=all-MiniLM-L6-v2
 
-# Optional - If using Ollama instead of Groq
-# OLLAMA_CHAT_MODEL=gemma:2b
-# OLLAMA_TEMPERATURE=0.7
+# Required for LLM
+GROQ_API_KEY=your_api_key_here
+
+# Optional - If you prefer remote embeddings (OpenAI), set `OPENAI_API_KEY`
+# OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 ## Startup Process

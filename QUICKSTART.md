@@ -42,11 +42,13 @@ GROQ_API_KEY=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
 # PDF_FILE_PATH=./documents/your_file.pdf
 ```
 
-### 3. Make Sure Ollama is Running
+### 3. Configure embeddings (local) and LLM (Groq)
+
+By default the app uses local Sentence-Transformers for embeddings. You can change the model via `HF_EMBED_MODEL` in `.env` (default `all-MiniLM-L6-v2`).
 
 ```bash
-# In another terminal
-ollama serve
+# Example .env entries
+# HF_EMBED_MODEL=all-MiniLM-L6-v2
 ```
 
 ### 4. Start the API
@@ -70,7 +72,7 @@ STEP 2: Creating text chunks...
 ✓ Created 45 chunks from documents
 
 STEP 3: Initializing embeddings model...
-   Using embedding model: nomic-embed-text
+   Using embedding model: all-MiniLM-L6-v2
 ✓ Embeddings model initialized
 
 STEP 4: Setting up vector store...
@@ -188,7 +190,8 @@ The `RAGSystem.initialize()` method performs 8 steps:
 {
   "status": "ok",
   "message": "Document RAG QA API is running.",
-  "ollama": "connected",
+  "groq": "configured",
+  "local_embeddings": "available",
   "rag_system": "initialized"
 }
 ```
