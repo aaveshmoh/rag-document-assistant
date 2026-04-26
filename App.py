@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import OllamaEmbeddings, ChatOllama
+from langchain_groq import ChatGroq
 
 load_dotenv()
 
@@ -52,10 +53,17 @@ else:
 
 faiss_retriever = faiss_vectorstore.as_retriever(search_kwargs={"k": 3})
 
-llm = ChatOllama(
+""" llm = ChatOllama(
     model=os.getenv("OLLAMA_CHAT_MODEL", "gemma:2b"),
     temperature=float(os.getenv("OLLAMA_TEMPERATURE", "0.7")),
     base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+) """
+
+# Initialize Groq LLM
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",   # or mixtral-8x7b-32768 / gemma2-9b-it
+    temperature=0.1,
+    groq_api_key=os.getenv("GROQ_API_KEY")
 )
 
 qa_prompt = ChatPromptTemplate.from_messages(
@@ -106,4 +114,4 @@ rag_chain = make_rag_chain(faiss_retriever)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("App:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("App:app", host="localhost", port=8000, reload=False)

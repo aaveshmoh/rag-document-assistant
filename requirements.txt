@@ -1,6 +1,7 @@
 langchain
 langchain-ollama
 langchain-openai
+langchain_groq
 langchain-community
 langchain-text-splitters
 faiss-cpu
